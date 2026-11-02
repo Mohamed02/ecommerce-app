@@ -24,7 +24,7 @@ public class CustomerService {
 //        return this.customerRepository.findAll(pageable).map(this::toCustomerResponse);
 //    }
 
-    public  Page<CustomerResponse> serachCustomers(String name, String email, Pageable pageable){
+        public  Page<CustomerResponse> serachCustomers(String name, String email, Pageable pageable){
 
         Specification<Customer> customerSpecification = (root,query,criteriaBuilder)->
                 criteriaBuilder.conjunction();
