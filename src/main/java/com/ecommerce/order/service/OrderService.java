@@ -2,6 +2,8 @@ package com.ecommerce.order.service;
 
 import com.ecommerce.customer.model.Customer;
 import com.ecommerce.customer.repository.CustomerRepository;
+import com.ecommerce.invetory.model.Inventory;
+import com.ecommerce.invetory.service.InventoryService;
 import com.ecommerce.order.dto.OrderItemRequest;
 import com.ecommerce.order.dto.OrderItemResponse;
 import com.ecommerce.order.dto.OrderRequest;
@@ -27,13 +29,15 @@ import java.util.List;
 @Service
 public class OrderService {
 
-    OrderRepository orderRepository;
-    ProductRepository productRepository;
-    CustomerRepository customerRepository;
-    OrderService(OrderRepository orderRepository, ProductRepository productRepository, CustomerRepository customerRepository){
+    private OrderRepository orderRepository;
+    private  ProductRepository productRepository;
+    private CustomerRepository customerRepository;
+    private InventoryService inventoryService;
+    OrderService(OrderRepository orderRepository, ProductRepository productRepository, CustomerRepository customerRepository, InventoryService inventoryService){
         this.orderRepository = orderRepository;
         this.productRepository = productRepository;
         this.customerRepository = customerRepository;
+        this.inventoryService = inventoryService;
 
     }
     @Transactional
@@ -44,7 +48,7 @@ public class OrderService {
 
         for(OrderItemRequest orderitemRequest: orderRequest.getItems()){
 
-            Product product  = this.productRepository.findById(orderitemRequest.getProductId())
+            Product product  = this.productRepository.findByIdForUpdate(orderitemRequest.getProductId())
                     .orElseThrow( ()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Product Does Found"+orderitemRequest.getProductId()));
             if(!Boolean.TRUE.equals(product.getActive())){
                throw  new ResponseStatusException(HttpStatus.BAD_REQUEST,"Product Is Inactive for ID"+product.getId());
@@ -56,13 +60,14 @@ public class OrderService {
 
             BigDecimal unitPrice = product.getPrice();
             BigDecimal lineTotal = unitPrice.multiply(BigDecimal.valueOf(orderitemRequest.getQuantity()));
-            product.setQuantity(product.getQuantity() - orderitemRequest.getQuantity());
             OrderItem item = new OrderItem(product,orderitemRequest.getQuantity(),product.getPrice(),lineTotal);
             order.addItem(item);
             totalAmount =lineTotal.add(totalAmount);
         }
         order.setTotalAmount(totalAmount);
         Order savedOrder = this.orderRepository.save(order);
+        this.inventoryService.reserveStockForOrder(savedOrder.getId());
+
         return  this.toResponse(savedOrder);
     }
 
@@ -76,12 +81,46 @@ public class OrderService {
      return  toResponse(order);
     }
 
-    public Page<OrderResponse> getOrdersByCustomerId(Long customerId, Pageable pageable){
-        return  this.orderRepository.findByCustomerId(customerId, pageable).map(this::toResponse);
+    public Page<OrderResponse> getCustomerOrders(Long customerId, OrderStatus status, Pageable pageable){
+        Page<Order> orders ;
+        if(status == null){
+            orders = orderRepository.findByCustomerId(
+                    customerId,
+                    pageable
+            );
+        }else{
+            orders = orderRepository.findByCustomerIdAndStatus(
+                    customerId,
+                    status,
+                    pageable
+            );
+        }
+        return  orders.map(this::toResponse);
     }
+
+    @Transactional
+    public void  confirmOrder(Long orderId){
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow( ()-> new ResponseStatusException(HttpStatus.NOT_FOUND,"Coudnt find the Order with order id: "+orderId));
+        if(order.getStatus()!= OrderStatus.PENDING){
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Order could be already processed or cancelled");
+        }
+        inventoryService.confirmReserveration(orderId);
+        order.setStatus(OrderStatus.CONFIRMED);
+    }
+
+    @Transactional
+    public  void cancelOrder(Long orderId){
+        Order order = orderRepository.findByIdForUpdate(orderId).orElseThrow( ()-> new ResponseStatusException(HttpStatus.NOT_FOUND,"Coudnt find the Order with order id: "+orderId));
+        if(order.getStatus()!= OrderStatus.PENDING){
+            throw new ResponseStatusException(HttpStatus.CONFLICT,"Order could be already processed or cancelled");
+        }
+        inventoryService.releaseReservation(orderId);
+        order.setStatus(OrderStatus.CANCELLED);
+    }
+
     private OrderResponse toResponse(Order savedOrder) {
         List<OrderItemResponse> orderItemsResponse = savedOrder.getItems().stream().map((item)
-                -> new OrderItemResponse(item.getProduct().getId(),item.getProductName(), item.getSku(), item.getQuantity(),item.getUnitPrice(),item.getUnitPrice())).toList();
+                -> new OrderItemResponse(item.getProduct().getId(),item.getProductName(), item.getSku(), item.getQuantity(),item.getUnitPrice(),item.getLineTotal())).toList();
         return  new OrderResponse(savedOrder.getId(),savedOrder.getCustomer().getId(),savedOrder.getOrderDate(),savedOrder.getStatus(),savedOrder.getTotalAmount(),orderItemsResponse);
     }
 
