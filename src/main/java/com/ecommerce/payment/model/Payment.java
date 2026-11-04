@@ -1,10 +1,13 @@
 package com.ecommerce.payment.model;
 
 import jakarta.persistence.*;
+import lombok.Data;
+import org.springframework.cglib.core.Local;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+@Data
 @Entity
 @Table(name="payments")
 public class Payment {
@@ -27,9 +30,22 @@ public class Payment {
     private PaymentMethod paymentMethod;
 
     private String transactionReference;
-
+    @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(nullable = false)
     private LocalDateTime updatedAt;
+
+    @PrePersist
+    protected void onCreate(){
+        LocalDateTime now = LocalDateTime.now();
+        createdAt = now;
+        updatedAt = now;
+    }
+
+    @PreUpdate
+    protected  void onUpdate(){
+        updatedAt = LocalDateTime.now();
+    }
 
 }

@@ -118,6 +118,23 @@ public class OrderService {
         order.setStatus(OrderStatus.CANCELLED);
     }
 
+    @Transactional
+    public OrderResponse getPendingOrderForPayment(Long orderId) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND,
+                        "Order not found"
+                ));
+
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Payment can only be initiated for pending orders"
+            );
+        }
+
+        return toResponse(order);
+    }
     private OrderResponse toResponse(Order savedOrder) {
         List<OrderItemResponse> orderItemsResponse = savedOrder.getItems().stream().map((item)
                 -> new OrderItemResponse(item.getProduct().getId(),item.getProductName(), item.getSku(), item.getQuantity(),item.getUnitPrice(),item.getLineTotal())).toList();
